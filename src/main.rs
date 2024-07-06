@@ -1,6 +1,7 @@
 mod wallet;
 use wallet::{Wallet, SharedWallet};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use serde_json::json;
 
@@ -16,30 +17,18 @@ async fn main() {
         println!("Initial balance: {}", wallet.get_balance("token1"));
     });
 
-    #[cfg(unix)]
-    {
-        use tokio::net::UnixListener;
-        let listener = UnixListener::bind("/tmp/wallet.sock").unwrap();
-        loop {
-            let (socket, _) = listener.accept().await.unwrap();
-            let wallet = Arc::clone(&wallet);
-            tokio::spawn(async move {
-                handle_client(wallet, socket).await;
-            });
-        }
-    }
-
-
-    // if no one got me i know cfg(unix) always got me MY GOAT
-
-    #[cfg(not(unix))]
-    {
-        println!("This only works on Unix-like systems.");
+    // IPC Communication
+    let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap(); //address:PORT
+    loop {
+        let (socket, _) = listener.accept().await.unwrap();
+        let wallet = Arc::clone(&wallet);
+        tokio::spawn(async move {
+            handle_client(wallet, socket).await;
+        });
     }
 }
 
-#[cfg(unix)]
-async fn handle_client(wallet: SharedWallet, mut socket: tokio::net::UnixStream) {
+async fn handle_client(wallet: SharedWallet, mut socket: TcpStream) {
     let mut buf = vec![0; 1024];
     let n = socket.read(&mut buf).await.unwrap();
     let request: serde_json::Value = serde_json::from_slice(&buf[..n]).unwrap();
